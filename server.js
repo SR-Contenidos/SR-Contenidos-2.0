@@ -83,7 +83,8 @@ async function validateAdmin(token) {
 }
 async function ensureAdmin() {
   if (!config.serviceRoleKey || !config.url || !config.adminEmail || !config.adminPassword) return;
-  if (config.adminPassword.length < 10) return;
+  // Supabase permite contraseñas de 6 caracteres o más; no bloquear una contraseña válida de 8 caracteres.
+  if (config.adminPassword.length < 6) return;
   const h = { apikey: config.serviceRoleKey, Authorization: `Bearer ${config.serviceRoleKey}`, 'Content-Type': 'application/json' };
   try {
     let user = null;
