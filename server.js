@@ -95,6 +95,17 @@ async function ensureAdmin() {
       const d = await create.json().catch(() => ({}));
       if (!create.ok) throw new Error(d.message || 'No se pudo crear el administrador');
       user = d.user || d;
+    } else {
+      // If the admin already existed (for example from the previous app),
+      // synchronize its password with the ADMIN_PASSWORD configured in Render.
+      const update = await sbFetch(`${config.url}/auth/v1/admin/users/${encodeURIComponent(user.id)}`, {
+        method: 'PUT',
+        headers: h,
+        body: JSON.stringify({ password: config.adminPassword, email_confirm: true, user_metadata: { ...(user.user_metadata || {}), name: 'Administrador' } })
+      });
+      const d = await update.json().catch(() => ({}));
+      if (!update.ok) throw new Error(d.message || 'No se pudo actualizar la contraseña del administrador');
+      user = d.user || d || user;
     }
     if (!user?.id) return;
     const profile = await sbFetch(`${config.url}/rest/v1/sr20_profiles?on_conflict=id`, { method: 'POST', headers: { ...h, Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ id: user.id, name: 'Administrador', email: config.adminEmail, role: 'admin', client_id: null }) });
