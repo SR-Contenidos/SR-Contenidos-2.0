@@ -147,8 +147,12 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === '/api/client-access' && req.method === 'POST') return await createClientAccess(req, res);
     if (url.pathname.startsWith('/api/')) return json(res, 404, { error: 'Ruta API no encontrada' });
-    const file = safeStatic(url.pathname);
-    if (!file || !fs.existsSync(file) || !fs.statSync(file).isFile()) return json(res, 404, { error: 'Not found' });
+    let file = safeStatic(url.pathname);
+    if (!file || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+      // SPA fallback: Supabase password-recovery redirects may use /reset-password.
+      // Serve index.html so the browser-side Supabase client can process the recovery session.
+      file = path.join(PUBLIC, 'index.html');
+    }
     const ext = path.extname(file);
     const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json' };
     res.writeHead(200, { ...headers(), 'Content-Type': types[ext] || 'application/octet-stream', 'Cache-Control': 'no-store' });

@@ -98,6 +98,8 @@ function openModal(html){const m=document.getElementById('modal');if(!m)return;d
 function closeModal(){document.getElementById('modal')?.classList.add('hidden');}
 function renderLoading(){document.getElementById('app').innerHTML=`<div class="login"><div class="card"><div class="brand" style="color:#0f172a">SR <span>Contenidos 2.0</span></div><h2>Conectando…</h2><p class="muted">Cargando tu sesión y tus datos desde Supabase.</p></div></div>`;}
 function renderLogin(error=''){document.getElementById('app').innerHTML=`<div class="login"><div class="card"><div class="brand" style="color:#0f172a">SR <span>Contenidos 2.0</span></div><h2>Iniciar sesión</h2><p class="muted">Acceso seguro para administrador y clientes.</p><div class="form"><label>Correo<input id="loginEmail" type="email" autocomplete="username" placeholder="correo@dominio.com"></label><label>Contraseña<input id="loginPass" type="password" autocomplete="current-password"></label><button class="btn" id="loginBtn">Entrar</button><div id="loginError" class="danger-notice" style="display:${error?'block':'none'}">${esc(error)}</div></div></div></div>`;document.getElementById('loginBtn').onclick=async()=>{const btn=document.getElementById('loginBtn');btn.disabled=true;try{const {error}=await sb.auth.signInWithPassword({email:document.getElementById('loginEmail').value.trim(),password:document.getElementById('loginPass').value});if(error)throw error;await loadDb();if(!db)throw new Error('No se pudo cargar el perfil. Ejecutá el SQL de SR Contenidos 2.0.');state.view='dashboard';render();}catch(e){document.getElementById('loginError').style.display='block';document.getElementById('loginError').textContent=e.message||'No se pudo iniciar sesión.';}finally{btn.disabled=false;}};}
+function renderResetPassword(error=''){document.getElementById('app').innerHTML=`<div class="login"><div class="card"><div class="brand" style="color:#0f172a">SR <span>Contenidos 2.0</span></div><h2>Restablecer contraseña</h2><p class="muted">Elegí una nueva contraseña para tu cuenta.</p><div class="form"><label>Nueva contraseña<input id="resetPass" type="password" minlength="8" autocomplete="new-password" placeholder="Mínimo 8 caracteres"></label><label>Repetir contraseña<input id="resetPass2" type="password" minlength="8" autocomplete="new-password"></label><button class="btn" id="resetBtn">Guardar nueva contraseña</button><div id="resetError" class="danger-notice" style="display:${error?'block':'none'}">${esc(error)}</div></div></div></div>`;document.getElementById('resetBtn').onclick=async()=>{const btn=document.getElementById('resetBtn');const p1=document.getElementById('resetPass').value,p2=document.getElementById('resetPass2').value;btn.disabled=true;try{if(p1.length<8)throw new Error('La contraseña debe tener al menos 8 caracteres.');if(p1!==p2)throw new Error('Las contraseñas no coinciden.');const {error}=await sb.auth.updateUser({password:p1});if(error)throw error;await sb.auth.signOut();history.replaceState({},document.title,'/');renderLogin();toast('Contraseña actualizada. Ya podés iniciar sesión.');}catch(e){document.getElementById('resetError').style.display='block';document.getElementById('resetError').textContent=e.message||'No se pudo actualizar la contraseña.';}finally{btn.disabled=false;}};}
+function hasRecoveryUrl(){const hash=new URLSearchParams(location.hash.replace(/^#/,'')).get('type');const query=new URLSearchParams(location.search).get('type');return hash==='recovery'||query==='recovery';}
 function view(){if(state.view==='login')return renderLogin();if(!db){renderLoading();return '';}if(state.view==='dashboard')return dashboard();if(state.view==='clients')return clients();if(state.view==='clientDetail')return clientDetail();if(state.view==='content')return content();if(state.view==='calendar')return calendar();if(state.view==='calendarDay')return dayAgenda(state.dayKey);if(state.view==='finances')return finances();if(state.view==='messages')return messages();if(state.view==='stats')return stats();if(state.view==='portfolio')return portfolio();return settings();}
 function render(){applyTheme();if(state.view==='login'){renderLogin();return;}if(!db){renderLoading();return;}document.getElementById('app').innerHTML=shell(view());bind();if(state.view==='settings')setTimeout(checkCloud,0);}
 
@@ -147,9 +149,16 @@ function bind(){
  bindModal();
 }
 
+let recoveryMode=false;
 async function start(){
   renderLoading();
   try{
+    if(hasRecoveryUrl()){
+      recoveryMode=true;
+      const {data:{session}}=await sb.auth.getSession();
+      if(!session) throw new Error('El enlace de recuperación es inválido o venció. Solicitá un enlace nuevo.');
+      state.view='reset'; renderResetPassword(); return;
+    }
     const {data:{session}}=await sb.auth.getSession();
     if(!session){state.view='login';render();return;}
     await loadDb();
@@ -157,5 +166,10 @@ async function start(){
     if(!db) renderLogin('No se encontró tu perfil en sr20_profiles. Ejecutá el SQL de la versión 2.0 o revisá el usuario.'); else render();
   }catch(e){console.error(e);state.view='login';renderLogin(e.message||'No se pudo cargar la aplicación.');}
 }
-sb.auth.onAuthStateChange(async(event)=>{if(['SIGNED_IN','TOKEN_REFRESHED'].includes(event)){try{if(!db){await loadDb();state.view='dashboard';render();}}catch(e){console.error(e);}}if(event==='SIGNED_OUT'){db=null;state.view='login';render();}});
+sb.auth.onAuthStateChange(async(event)=>{
+  if(event==='PASSWORD_RECOVERY'){recoveryMode=true;state.view='reset';renderResetPassword();return;}
+  if(recoveryMode)return;
+  if(['SIGNED_IN','TOKEN_REFRESHED'].includes(event)){try{if(!db){await loadDb();state.view='dashboard';render();}}catch(e){console.error(e);}}
+  if(event==='SIGNED_OUT'){db=null;state.view='login';render();}
+});
 window.addEventListener('load',start);
