@@ -1,0 +1,12 @@
+{
+  "name": "sr-contenidos-2-0",
+  "version": "2.0.0",
+  "private": true,
+  "description": "SR Contenidos 2.0 — web app con Supabase como fuente única de datos",
+  "scripts": {
+    "start": "node server.js",
+    "web": "node server.js",
+    "check": "node --check server.js && node --check public/app.js"
+  },
+  "engines": { "node": ">=22" }
+}
