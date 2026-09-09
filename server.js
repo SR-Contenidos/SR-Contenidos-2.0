@@ -9,7 +9,7 @@ const PORT = Number(process.env.PORT || 3000);
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const SUPABASE_URL = String(process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const SUPABASE_PUBLISHABLE_KEY = String(process.env.SUPABASE_PUBLISHABLE_KEY || '');
-const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '');
+const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || '');
 const ADMIN_EMAIL = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
 const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || '');
 const COOKIE_NAME = 'sr20_access';
@@ -33,7 +33,7 @@ try {
 const config = {
   url: String(process.env.SUPABASE_URL || SUPABASE_URL).replace(/\/$/, ''),
   publishableKey: String(process.env.SUPABASE_PUBLISHABLE_KEY || SUPABASE_PUBLISHABLE_KEY),
-  serviceRoleKey: String(process.env.SUPABASE_SERVICE_ROLE_KEY || SUPABASE_SERVICE_ROLE_KEY),
+  serviceRoleKey: String(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || SUPABASE_SERVICE_ROLE_KEY),
   adminEmail: String(process.env.ADMIN_EMAIL || ADMIN_EMAIL).trim().toLowerCase(),
   adminPassword: String(process.env.ADMIN_PASSWORD || ADMIN_PASSWORD)
 };
@@ -76,7 +76,8 @@ async function validateAdmin(token) {
   const userRes = await sbFetch(`${config.url}/auth/v1/user`, { headers: { apikey: config.publishableKey, Authorization: `Bearer ${token}` } });
   const user = await userRes.json().catch(() => ({}));
   if (!userRes.ok || !user.id) throw new Error('La sesión expiró. Volvé a iniciar sesión.');
-  const pRes = await sbFetch(`${config.url}/rest/v1/sr20_profiles?select=id,role&id=eq.${encodeURIComponent(user.id)}&limit=1`, { headers: { apikey: config.publishableKey, Authorization: `Bearer ${token}` } });
+  if (!config.serviceRoleKey) throw new Error('El servidor no tiene configurada la clave privada de Supabase.');
+  const pRes = await sbFetch(`${config.url}/rest/v1/sr20_profiles?select=id,role&id=eq.${encodeURIComponent(user.id)}&limit=1`, { headers: { apikey: config.serviceRoleKey, Authorization: `Bearer ${config.serviceRoleKey}` } });
   const rows = await pRes.json().catch(() => []);
   if (!pRes.ok || rows[0]?.role !== 'admin') throw new Error('Solo un administrador puede realizar esta acción.');
   return user;
@@ -122,6 +123,21 @@ function safeStatic(pathname) {
   if (!full.startsWith(PUBLIC)) return null;
   return full;
 }
+async function getProfile(req, res) {
+  const token = authToken(req);
+  if (!token) return json(res, 401, { error: 'Sesión inválida.' });
+  if (!config.url || !config.publishableKey || !config.serviceRoleKey) return json(res, 500, { error: 'Falta configuración privada de Supabase en el servidor.' });
+  const userRes = await sbFetch(`${config.url}/auth/v1/user`, { headers: { apikey: config.publishableKey, Authorization: `Bearer ${token}` } });
+  const user = await userRes.json().catch(() => ({}));
+  if (!userRes.ok || !user.id) return json(res, 401, { error: 'La sesión expiró. Volvé a iniciar sesión.' });
+  const h = { apikey: config.serviceRoleKey, Authorization: `Bearer ${config.serviceRoleKey}` };
+  const pRes = await sbFetch(`${config.url}/rest/v1/sr20_profiles?select=id,name,email,role,client_id&id=eq.${encodeURIComponent(user.id)}&limit=1`, { headers: h });
+  const rows = await pRes.json().catch(() => []);
+  if (!pRes.ok) return json(res, 500, { error: 'No se pudo consultar el perfil en Supabase.' });
+  if (!rows[0]) return json(res, 404, { error: 'No se encontró el perfil del usuario en sr20_profiles.' });
+  return json(res, 200, { profile: rows[0] });
+}
+
 async function createClientAccess(req, res) {
   const token = authToken(req);
   await validateAdmin(token);
@@ -157,6 +173,7 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { ...headers(), 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(body);
     }
+    if (url.pathname === '/api/profile' && req.method === 'GET') return await getProfile(req, res);
     if (url.pathname === '/api/client-access' && req.method === 'POST') return await createClientAccess(req, res);
     if (url.pathname.startsWith('/api/')) return json(res, 404, { error: 'Ruta API no encontrada' });
     let file = safeStatic(url.pathname);

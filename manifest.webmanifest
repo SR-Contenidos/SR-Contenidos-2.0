@@ -1,0 +1,9 @@
+{
+  "name": "SR Contenidos 2.0",
+  "short_name": "SR 2.0",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7fafc",
+  "theme_color": "#0b0f14",
+  "icons": [{"src":"/icon.svg","sizes":"any","type":"image/svg+xml"}]
+}
