@@ -24,7 +24,15 @@ function toast(message, kind='ok'){
   const el=document.createElement('div'); el.className='notice '+(kind==='error'?'danger-notice':'success'); el.textContent=message; el.style.cssText='position:fixed;right:18px;bottom:18px;z-index:5000;max-width:420px;box-shadow:0 8px 30px rgba(0,0,0,.18)'; root.appendChild(el); setTimeout(()=>el.remove(),3200);
 }
 function fail(e){console.error(e); toast(e?.message || String(e) || 'Ocurrió un error.', 'error');}
-async function ensureOk(promise){const {data,error}=await promise;if(error)throw error;return data;}
+async function ensureOk(promise){
+  if(promise instanceof Response){
+    const res=promise;
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data?.error || data?.message || `Error HTTP ${res.status}`);
+    return data;
+  }
+  const {data,error}=await promise;if(error)throw error;return data;
+}
 function applyTheme(){document.documentElement.dataset.theme=state.theme;}
 function stat(label,value){return `<div class="card stat"><div class="label">${esc(label)}</div><div class="value">${value}</div></div>`;}
 function kpi(label,value){return `<div><div class="pill">${esc(label)}</div><div class="kpi">${Number(value||0).toLocaleString('es-AR')}</div></div>`;}
@@ -36,24 +44,9 @@ async function getCurrentUser(){
 async function loadDb(){
   const user=await getCurrentUser();
   if(!user){db=null;return;}
-  const session=await ensureOk(sb.auth.getSession());
-  const token=session.session?.access_token;
-  if(!token) throw new Error('La sesión expiró. Volvé a iniciar sesión.');
-  let profile=null;
-  try {
-    const profileRes=await fetch('/api/profile',{headers:{Authorization:`Bearer ${token}`},cache:'no-store'});
-    const profileBody=await profileRes.json().catch(()=>({}));
-    if(profileRes.ok && profileBody.profile) profile=profileBody.profile;
-  } catch (e) {
-    console.warn('No se pudo consultar el perfil por el servidor:', e);
-  }
-  // Fallback for the current single-admin deployment: if Render cannot reach
-  // Supabase server-side, keep the already authenticated admin usable.
-  // RLS still remains the authority for all data operations.
-  if(!profile && user.email?.trim().toLowerCase()==='atlas.technoo@gmail.com') {
-    profile={id:user.id,name:'Administrador',email:user.email,role:'admin',client_id:null};
-  }
-  if(!profile) throw new Error('No se pudo cargar el perfil.');
+  const {data:{session}}=await sb.auth.getSession();
+  const sessionProfile=await fetch('/api/session-profile',{headers:{Authorization:`Bearer ${session?.access_token||''}`},cache:'no-store'});
+  const profile=await ensureOk(sessionProfile);
   const isAdmin=profile.role==='admin';
   const clientsQ=isAdmin?sb.from('sr20_clients').select('*').order('created_at',{ascending:true}):sb.from('sr20_clients').select('*').eq('id',profile.client_id);
   const [clients,plans,reels,payments,events,messages]=await Promise.all([
@@ -213,7 +206,7 @@ async function start(){
     if(!session){state.view='login';render();return;}
     await loadDb();
     state.view=db?'dashboard':'login';
-    if(!db) renderLogin('No se pudo cargar tu perfil.'); else render();
+    if(!db) renderLogin('No se encontró tu perfil en sr20_profiles. Ejecutá el SQL de la versión 2.0 o revisá el usuario.'); else render();
   }catch(e){console.error(e);state.view='login';renderLogin(e.message||'No se pudo cargar la aplicación.');}
 }
 sb.auth.onAuthStateChange(async(event)=>{
