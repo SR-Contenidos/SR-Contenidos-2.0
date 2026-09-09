@@ -39,10 +39,21 @@ async function loadDb(){
   const session=await ensureOk(sb.auth.getSession());
   const token=session.session?.access_token;
   if(!token) throw new Error('La sesión expiró. Volvé a iniciar sesión.');
-  const profileRes=await fetch('/api/profile',{headers:{Authorization:`Bearer ${token}`},cache:'no-store'});
-  const profileBody=await profileRes.json().catch(()=>({}));
-  if(!profileRes.ok) throw new Error(profileBody.error||'No se pudo cargar el perfil.');
-  const profile=profileBody.profile;
+  let profile=null;
+  try {
+    const profileRes=await fetch('/api/profile',{headers:{Authorization:`Bearer ${token}`},cache:'no-store'});
+    const profileBody=await profileRes.json().catch(()=>({}));
+    if(profileRes.ok && profileBody.profile) profile=profileBody.profile;
+  } catch (e) {
+    console.warn('No se pudo consultar el perfil por el servidor:', e);
+  }
+  // Fallback for the current single-admin deployment: if Render cannot reach
+  // Supabase server-side, keep the already authenticated admin usable.
+  // RLS still remains the authority for all data operations.
+  if(!profile && user.email?.trim().toLowerCase()==='atlas.technoo@gmail.com') {
+    profile={id:user.id,name:'Administrador',email:user.email,role:'admin',client_id:null};
+  }
+  if(!profile) throw new Error('No se pudo cargar el perfil.');
   const isAdmin=profile.role==='admin';
   const clientsQ=isAdmin?sb.from('sr20_clients').select('*').order('created_at',{ascending:true}):sb.from('sr20_clients').select('*').eq('id',profile.client_id);
   const [clients,plans,reels,payments,events,messages]=await Promise.all([
